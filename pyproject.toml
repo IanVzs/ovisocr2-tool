@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "ocr-tool"
-version = "0.1.0"
+version = "0.1.1"
 description = "区域截图 OCR 工具（HunyuanOCR via llama.cpp，系统托盘）"
 readme = "README.md"
 requires-python = ">=3.10"

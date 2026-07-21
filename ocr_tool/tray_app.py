@@ -9,7 +9,17 @@ import threading
 import time
 from pathlib import Path
 
-from PySide6.QtCore import QEvent, QObject, QPoint, QRect, Qt, QTimer, Signal, Slot
+from PySide6.QtCore import (
+    QEvent,
+    QKeyCombination,
+    QObject,
+    QPoint,
+    QRect,
+    Qt,
+    QTimer,
+    Signal,
+    Slot,
+)
 from PySide6.QtGui import (
     QAction,
     QColor,
@@ -18,14 +28,13 @@ from PySide6.QtGui import (
     QGuiApplication,
     QIcon,
     QKeySequence,
+    QMouseEvent,
     QPainter,
     QPalette,
     QPixmap,
-    QShortcut,
 )
 from PySide6.QtWidgets import (
     QApplication,
-    QDialog,
     QFrame,
     QGraphicsDropShadowEffect,
     QHBoxLayout,
@@ -41,10 +50,13 @@ from PySide6.QtWidgets import (
 
 from ocr_tool.capture import CaptureCancelled, CaptureError, capture_region
 from ocr_tool.clipboard import ClipboardError, copy_text
+from ocr_tool.config import DEFAULT_HOTKEY, load_config, save_config
+from ocr_tool.hotkey import GlobalHotkey
 from ocr_tool.ipc import serve_ipc
 from ocr_tool.job_runner import JobRunner
 from ocr_tool.notify import notify
 from ocr_tool.tasks import Task, TaskKind, TaskManager, TaskStatus
+from ocr_tool.version import app_version
 
 log = logging.getLogger("ocrtool")
 
@@ -93,6 +105,13 @@ _PANEL_QSS_LIGHT = """
 }
 #TaskTitle { color: #0F172A; font-size: 13px; font-weight: 600; }
 #TaskDetail { color: #64748B; font-size: 11px; }
+#TaskPreview {
+    color: #475569; font-size: 11px; background: #EEF2F7;
+    border-radius: 6px; padding: 5px 8px;
+}
+#TaskImage {
+    background: #0F172A; border: 1px solid #E2E8F0; border-radius: 8px; padding: 4px;
+}
 #TaskError { color: #DC2626; font-size: 11px; }
 #StatusPill {
     border-radius: 9px; padding: 2px 8px; font-size: 11px; font-weight: 600;
@@ -117,6 +136,20 @@ QScrollBar::handle:vertical {
     background: #CBD5E1; border-radius: 4px; min-height: 24px;
 }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+#FooterSep { background: #E2E8F0; max-height: 1px; min-height: 1px; border: none; }
+#SectionLabel { color: #64748B; font-size: 11px; font-weight: 600; }
+#HotkeyBtn {
+    background: #FFFFFF; border: 1px solid #CBD5E1; border-radius: 8px;
+    color: #0F172A; padding: 5px 12px; font-size: 12px; font-weight: 600;
+}
+#HotkeyBtn:hover { border-color: #93C5FD; }
+#HotkeyBtn[capturing="true"] { border-color: #2563EB; color: #2563EB; background: #EFF6FF; }
+#LinkBtn {
+    background: transparent; border: none; color: #94A3B8; font-size: 11px; padding: 2px 4px;
+}
+#LinkBtn:hover { color: #2563EB; }
+#HotkeyStatus { color: #94A3B8; font-size: 11px; }
+#VersionLabel { color: #94A3B8; font-size: 11px; }
 """
 
 _PANEL_QSS_DARK = """
@@ -138,6 +171,13 @@ _PANEL_QSS_DARK = """
 }
 #TaskTitle { color: #E6EAF2; font-size: 13px; font-weight: 600; }
 #TaskDetail { color: #98A2B3; font-size: 11px; }
+#TaskPreview {
+    color: #C3CCDA; font-size: 11px; background: #232A36;
+    border-radius: 6px; padding: 5px 8px;
+}
+#TaskImage {
+    background: #12151C; border: 1px solid #363E4C; border-radius: 8px; padding: 4px;
+}
 #TaskError { color: #F87171; font-size: 11px; }
 #StatusPill {
     border-radius: 9px; padding: 2px 8px; font-size: 11px; font-weight: 600;
@@ -162,6 +202,20 @@ QScrollBar::handle:vertical {
     background: #3C4557; border-radius: 4px; min-height: 24px;
 }
 QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+#FooterSep { background: #333A47; max-height: 1px; min-height: 1px; border: none; }
+#SectionLabel { color: #98A2B3; font-size: 11px; font-weight: 600; }
+#HotkeyBtn {
+    background: #2F3644; border: 1px solid #3C4557; border-radius: 8px;
+    color: #E6EAF2; padding: 5px 12px; font-size: 12px; font-weight: 600;
+}
+#HotkeyBtn:hover { border-color: #3B82F6; }
+#HotkeyBtn[capturing="true"] { border-color: #3B82F6; color: #93C5FD; background: #313B52; }
+#LinkBtn {
+    background: transparent; border: none; color: #7C879B; font-size: 11px; padding: 2px 4px;
+}
+#LinkBtn:hover { color: #93C5FD; }
+#HotkeyStatus { color: #7C879B; font-size: 11px; }
+#VersionLabel { color: #7C879B; font-size: 11px; }
 """
 
 
@@ -205,41 +259,20 @@ def make_tray_icon() -> QIcon:
     return QIcon(pm)
 
 
-class ImageViewDialog(QDialog):
-    """查看截图原图。"""
-
-    def __init__(self, image_path: str | Path, parent: QWidget | None = None) -> None:
-        super().__init__(parent)
-        self.setWindowTitle("原图")
-        self.resize(720, 540)
-        layout = QVBoxLayout(self)
-        label = QLabel()
-        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        pixmap = QPixmap(str(image_path))
-        if pixmap.isNull():
-            label.setText(f"无法加载图片：{image_path}")
-        else:
-            scaled = pixmap.scaled(
-                680,
-                480,
-                Qt.AspectRatioMode.KeepAspectRatio,
-                Qt.TransformationMode.SmoothTransformation,
-            )
-            label.setPixmap(scaled)
-        layout.addWidget(label)
-        close_btn = QPushButton("关闭")
-        close_btn.clicked.connect(self.accept)
-        layout.addWidget(close_btn, alignment=Qt.AlignmentFlag.AlignRight)
-
-
 class TaskRow(QFrame):
     """单条任务卡片。"""
+
+    # 预览文本裁剪长度（折叠空白后取前 N 字，够区分不同任务即可）。
+    _PREVIEW_CHARS = 90
+    _IMAGE_MAX_W = 356
 
     def __init__(self, task: Task, controller: TrayController) -> None:
         super().__init__()
         self.setObjectName("TaskCard")
+        self.task_id = task.id
         self._task = task
         self._controller = controller
+        self._image_open = False
 
         root = QVBoxLayout(self)
         root.setContentsMargins(12, 10, 12, 10)
@@ -261,6 +294,13 @@ class TaskRow(QFrame):
         self._detail.setObjectName("TaskDetail")
         self._detail.setWordWrap(True)
         root.addWidget(self._detail)
+
+        # 识别结果预览：截取一段文本，方便一眼区分是哪次任务的内容。
+        self._preview = QLabel()
+        self._preview.setObjectName("TaskPreview")
+        self._preview.setWordWrap(True)
+        self._preview.hide()
+        root.addWidget(self._preview)
 
         prog_row = QHBoxLayout()
         self._progress = QProgressBar()
@@ -296,6 +336,13 @@ class TaskRow(QFrame):
         actions.addStretch()
         root.addLayout(actions)
 
+        # 原图就地展开区域（不再弹独立窗口，避免主窗口失焦被关）。
+        self._image = QLabel()
+        self._image.setObjectName("TaskImage")
+        self._image.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._image.hide()
+        root.addWidget(self._image)
+
         self.refresh(task)
 
     def refresh(self, task: Task) -> None:
@@ -320,17 +367,60 @@ class TaskRow(QFrame):
         else:
             self._error.hide()
 
+        preview = self._preview_text(task)
+        self._preview.setText(preview)
+        self._preview.setVisible(bool(preview))
+
         show_actions = task.show_action_buttons
         self._view_btn.setVisible(show_actions)
         self._copy_btn.setVisible(show_actions)
         if show_actions:
             self._view_btn.setEnabled(task.can_view_image)
             self._copy_btn.setEnabled(task.can_copy)
+        # 图片没了（不可看）就把展开的原图收起来。
+        if self._image_open and not task.can_view_image:
+            self._collapse_image()
+
+    def _preview_text(self, task: Task) -> str:
+        raw = " ".join((task.result_text or "").split())
+        if not raw:
+            return ""
+        if len(raw) > self._PREVIEW_CHARS:
+            return raw[: self._PREVIEW_CHARS] + "…"
+        return raw
 
     def _on_view(self) -> None:
-        if self._task.image_path:
-            dlg = ImageViewDialog(self._task.image_path, self.window())
-            dlg.exec()
+        if self._image_open:
+            self._collapse_image()
+            return
+        if not self._task.image_path:
+            return
+        pixmap = QPixmap(str(self._task.image_path))
+        if pixmap.isNull():
+            notify(APP_NAME, "无法加载原图")
+            return
+        if pixmap.width() > self._IMAGE_MAX_W:
+            pixmap = pixmap.scaledToWidth(
+                self._IMAGE_MAX_W, Qt.TransformationMode.SmoothTransformation
+            )
+        self._image.setPixmap(pixmap)
+        self._image.show()
+        self._image_open = True
+        self._view_btn.setText("收起原图")
+        self._request_relayout()
+
+    def _collapse_image(self) -> None:
+        self._image.hide()
+        self._image.clear()
+        self._image_open = False
+        self._view_btn.setText("查看原图")
+        self._request_relayout()
+
+    def _request_relayout(self) -> None:
+        # 展开 / 收起后让顶层面板重新按内容调整高度。
+        win = self.window()
+        if win is not None:
+            win.adjustSize()
 
     def _on_copy(self) -> None:
         if not self._task.can_copy or not self._task.result_text:
@@ -370,6 +460,99 @@ class OutsideClickFilter(QObject):
             return False
         QTimer.singleShot(0, self._panel.hide)
         return False
+
+
+_MODIFIER_KEYS = {
+    Qt.Key.Key_Shift,
+    Qt.Key.Key_Control,
+    Qt.Key.Key_Alt,
+    Qt.Key.Key_Meta,
+    Qt.Key.Key_Super_L,
+    Qt.Key.Key_Super_R,
+    Qt.Key.Key_AltGr,
+}
+
+
+class HotkeyButton(QPushButton):
+    """点一下开始录制组合键，按下含修饰键的组合即提交。
+
+    录制期间 grab 键盘并吞掉 Esc（取消录制而非关闭面板）。要求至少含一个修饰键，
+    否则全局快捷键容易和普通输入撞车。
+    """
+
+    captured = Signal(str)
+
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setObjectName("HotkeyBtn")
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._capturing = False
+        self._value = ""
+        self.clicked.connect(self._toggle_capture)
+
+    def set_value(self, sequence: str) -> None:
+        self._value = sequence or ""
+        if not self._capturing:
+            self.setText(self._value or "未设置")
+
+    @property
+    def is_capturing(self) -> bool:
+        return self._capturing
+
+    def _toggle_capture(self) -> None:
+        if self._capturing:
+            self._stop_capture()
+        else:
+            self._start_capture()
+
+    def _start_capture(self) -> None:
+        self._capturing = True
+        self.setText("按下组合键…")
+        self._restyle()
+        self.grabKeyboard()
+
+    def _stop_capture(self) -> None:
+        self._capturing = False
+        self.releaseKeyboard()
+        self.setText(self._value or "未设置")
+        self._restyle()
+
+    def cancel_capture(self) -> bool:
+        """外部（Esc）请求取消录制；正在录制返回 True。"""
+        if self._capturing:
+            self._stop_capture()
+            return True
+        return False
+
+    def _restyle(self) -> None:
+        self.setProperty("capturing", "true" if self._capturing else "false")
+        self.style().unpolish(self)
+        self.style().polish(self)
+
+    def keyPressEvent(self, event) -> None:  # noqa: N802
+        if not self._capturing:
+            super().keyPressEvent(event)
+            return
+        key = Qt.Key(event.key())
+        if key == Qt.Key.Key_Escape:
+            self._stop_capture()
+            return
+        if key in _MODIFIER_KEYS:
+            return  # 等待非修饰键
+        mods = event.modifiers()
+        if mods == Qt.KeyboardModifier.NoModifier or mods == Qt.KeyboardModifier.KeypadModifier:
+            self.setText("需含 Ctrl/Alt/Meta…")
+            return
+        seq = QKeySequence(QKeyCombination(mods, key))
+        text = seq.toString(QKeySequence.SequenceFormat.PortableText)
+        if not text:
+            return
+        self._capturing = False
+        self.releaseKeyboard()
+        self._value = text
+        self.setText(text)
+        self._restyle()
+        self.captured.emit(text)
 
 
 class TaskPanel(QWidget):
@@ -415,9 +598,9 @@ class TaskPanel(QWidget):
         head = QHBoxLayout()
         title_col = QVBoxLayout()
         title_col.setSpacing(1)
-        title = QLabel("任务")
+        title = QLabel(APP_NAME)
         title.setObjectName("PanelTitle")
-        hint = QLabel("失焦 / 点击外部 / Esc 关闭")
+        hint = QLabel("拖动标题移动 · 失焦 / 点击外部 / Esc 关闭")
         hint.setObjectName("PanelHint")
         title_col.addWidget(title)
         title_col.addWidget(hint)
@@ -435,7 +618,7 @@ class TaskPanel(QWidget):
         scroll.setWidgetResizable(True)
         scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         scroll.setFrameShape(QFrame.Shape.NoFrame)
-        scroll.setMinimumHeight(200)
+        scroll.setMinimumHeight(160)
         self._list_host = QWidget()
         self._list_layout = QVBoxLayout(self._list_host)
         self._list_layout.setContentsMargins(0, 0, 0, 0)
@@ -444,15 +627,69 @@ class TaskPanel(QWidget):
         scroll.setWidget(self._list_host)
         outer.addWidget(scroll)
 
-        self.setStyleSheet(controller.theme["qss"])
-        self._rows: list[TaskRow] = []
+        outer.addWidget(self._build_footer())
 
-        QShortcut(QKeySequence(Qt.Key.Key_Escape), self, activated=self.hide)
+        self.setStyleSheet(controller.theme["qss"])
+        self._rows: dict[str, TaskRow] = {}
+        self._empty_label: QLabel | None = None
+        self._drag_offset: QPoint | None = None
 
         self._outside_filter = OutsideClickFilter(self)
         app = QApplication.instance()
         if app is not None:
             app.installEventFilter(self._outside_filter)
+
+    def _build_footer(self) -> QWidget:
+        """快捷键配置区 + 版本号，置于面板底部。"""
+        box = QWidget()
+        col = QVBoxLayout(box)
+        col.setContentsMargins(0, 0, 0, 0)
+        col.setSpacing(6)
+
+        sep = QFrame()
+        sep.setObjectName("FooterSep")
+        sep.setFrameShape(QFrame.Shape.HLine)
+        col.addWidget(sep)
+
+        row = QHBoxLayout()
+        row.setSpacing(8)
+        label = QLabel("全局快捷键")
+        label.setObjectName("SectionLabel")
+        row.addWidget(label)
+        self._hotkey_btn = HotkeyButton()
+        self._hotkey_btn.captured.connect(self._on_hotkey_captured)
+        row.addWidget(self._hotkey_btn)
+        clear_btn = QPushButton("清除")
+        clear_btn.setObjectName("LinkBtn")
+        clear_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        clear_btn.clicked.connect(lambda: self._on_hotkey_captured(""))
+        row.addWidget(clear_btn)
+        row.addStretch()
+        col.addLayout(row)
+
+        foot = QHBoxLayout()
+        foot.setSpacing(8)
+        self._hotkey_status = QLabel("")
+        self._hotkey_status.setObjectName("HotkeyStatus")
+        self._hotkey_status.setWordWrap(True)
+        foot.addWidget(self._hotkey_status, stretch=1)
+        version = QLabel(f"{APP_NAME} v{app_version()}")
+        version.setObjectName("VersionLabel")
+        foot.addWidget(version, alignment=Qt.AlignmentFlag.AlignRight)
+        col.addLayout(foot)
+
+        return box
+
+    def sync_hotkey_view(self) -> None:
+        """从控制器同步当前快捷键与状态到 UI。"""
+        self._hotkey_btn.set_value(self._controller.hotkey_sequence)
+        self._hotkey_btn.setEnabled(self._controller.hotkey.available)
+        self._hotkey_status.setText(self._controller.hotkey_status)
+
+    def _on_hotkey_captured(self, sequence: str) -> None:
+        _ok, msg = self._controller.set_hotkey(sequence)
+        self._hotkey_btn.set_value(self._controller.hotkey_sequence)
+        self._hotkey_status.setText(msg)
 
     def event(self, e: QEvent) -> bool:  # noqa: N802
         # 失焦（切到别的窗口/点别处）即关闭，像正常 flyout。
@@ -465,32 +702,82 @@ class TaskPanel(QWidget):
             QTimer.singleShot(0, self.hide)
         return super().event(e)
 
-    def refresh(self) -> None:
-        while self._list_layout.count() > 1:
-            item = self._list_layout.takeAt(0)
-            if item.widget():
-                item.widget().deleteLater()
-        self._rows.clear()
+    def hideEvent(self, e: QEvent) -> None:  # noqa: N802
+        # 关面板时确保取消录制并释放键盘，避免键盘被 grab 卡住。
+        self._hotkey_btn.cancel_capture()
+        super().hideEvent(e)
 
+    def keyPressEvent(self, e) -> None:  # noqa: N802
+        # Esc：录制中交给按钮取消，否则关闭面板（保留原关闭语义）。
+        if e.key() == Qt.Key.Key_Escape:
+            if not self._hotkey_btn.cancel_capture():
+                self.hide()
+            return
+        super().keyPressEvent(e)
+
+    def mousePressEvent(self, e: QMouseEvent) -> None:  # noqa: N802
+        # 空白处按下即可拖动整窗（子控件如按钮会自行消费事件，不触发拖动）。
+        if e.button() == Qt.MouseButton.LeftButton:
+            self._drag_offset = (
+                e.globalPosition().toPoint() - self.frameGeometry().topLeft()
+            )
+            e.accept()
+            return
+        super().mousePressEvent(e)
+
+    def mouseMoveEvent(self, e: QMouseEvent) -> None:  # noqa: N802
+        if self._drag_offset is not None and e.buttons() & Qt.MouseButton.LeftButton:
+            self.move(e.globalPosition().toPoint() - self._drag_offset)
+            e.accept()
+            return
+        super().mouseMoveEvent(e)
+
+    def mouseReleaseEvent(self, e: QMouseEvent) -> None:  # noqa: N802
+        self._drag_offset = None
+        super().mouseReleaseEvent(e)
+
+    def refresh(self) -> None:
+        # 就地增删 / 更新行（按 task id 复用），避免每次刷新重建行——
+        # 那会把用户展开的原图、滚动位置一并清掉。
         tasks = self._controller.tasks.list_tasks()
+        wanted = {t.id for t in tasks}
+
+        for tid in list(self._rows):
+            if tid not in wanted:
+                row = self._rows.pop(tid)
+                self._list_layout.removeWidget(row)
+                row.deleteLater()
+
         if not tasks:
-            empty = QLabel("暂无任务")
-            empty.setObjectName("PanelHint")
-            empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
-            empty.setStyleSheet("padding: 28px 0;")
-            self._list_layout.insertWidget(0, empty)
+            if self._empty_label is None:
+                empty = QLabel("暂无任务")
+                empty.setObjectName("PanelHint")
+                empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+                empty.setStyleSheet("padding: 28px 0;")
+                self._list_layout.insertWidget(0, empty)
+                self._empty_label = empty
             self.adjustSize()
             return
 
+        if self._empty_label is not None:
+            self._list_layout.removeWidget(self._empty_label)
+            self._empty_label.deleteLater()
+            self._empty_label = None
+
         for idx, task in enumerate(tasks):
-            row = TaskRow(task, self._controller)
+            row = self._rows.get(task.id)
+            if row is None:
+                row = TaskRow(task, self._controller)
+                self._rows[task.id] = row
+            else:
+                row.refresh(task)
             self._list_layout.insertWidget(idx, row)
-            self._rows.append(row)
         self.adjustSize()
 
     def show_near_anchor(self, anchor: QPoint | None, tray: QSystemTrayIcon) -> None:
         """贴着光标弹出：光标在屏幕上半屏则朝下，下半屏则朝上。"""
         self.refresh()
+        self.sync_hotkey_view()
         self.adjustSize()
 
         cursor = anchor if anchor is not None else QCursor.pos()
@@ -544,17 +831,24 @@ class TrayController(QObject):
         self.tasks.add_listener(self._on_tasks_changed)
         self.runner.start()
 
+        self._config = load_config()
+        self.hotkey = GlobalHotkey(self)
+        self.hotkey.activated.connect(self.start_capture)
+        self.hotkey_sequence = ""
+        self.hotkey_status = ""
+        self._init_hotkey()
+
         self._panel = TaskPanel(self)
         self._tray = QSystemTrayIcon(make_tray_icon())
-        self._tray.setToolTip("OCR工具 截图识别")
+        self._tray.setToolTip("OCR工具 · 单击截图识别")
 
         menu = QMenu()
+        act_panel = QAction("显示主窗口", self._tray)
+        act_panel.triggered.connect(self.show_panel)
+        menu.addAction(act_panel)
         act_capture = QAction("新截图识别", self._tray)
         act_capture.triggered.connect(self.start_capture)
         menu.addAction(act_capture)
-        act_panel = QAction("显示任务列表", self._tray)
-        act_panel.triggered.connect(self.show_panel)
-        menu.addAction(act_panel)
         menu.addSeparator()
         act_quit = QAction("退出", self._tray)
         act_quit.triggered.connect(self.quit_app)
@@ -592,17 +886,34 @@ class TrayController(QObject):
             )
 
     def _on_tray_activated(self, reason: QSystemTrayIcon.ActivationReason) -> None:
-        if reason == QSystemTrayIcon.ActivationReason.Context:
-            return
+        # 单击（含双击 / 中键）触发新截图；主窗口改从右键菜单打开。
         if reason in (
             QSystemTrayIcon.ActivationReason.Trigger,
             QSystemTrayIcon.ActivationReason.DoubleClick,
             QSystemTrayIcon.ActivationReason.MiddleClick,
         ):
-            if self._panel.isVisible():
-                self._panel.hide()
-            else:
-                self.show_panel()
+            self.start_capture()
+
+    def _init_hotkey(self) -> None:
+        """启动时按配置注册全局快捷键（首次运行用默认组合）。"""
+        seq = str(self._config.get("hotkey", DEFAULT_HOTKEY) or "")
+        if not self.hotkey.available:
+            self.hotkey_sequence = seq
+            self.hotkey_status = "当前桌面环境不支持全局快捷键"
+            return
+        ok, msg = self.hotkey.apply(seq)
+        self.hotkey_sequence = self.hotkey.current
+        self.hotkey_status = msg if ok else f"快捷键未生效：{msg}"
+
+    def set_hotkey(self, sequence: str) -> tuple[bool, str]:
+        """更新全局快捷键并持久化。返回 (成功, 说明) 供 UI 展示。"""
+        ok, msg = self.hotkey.apply(sequence)
+        if ok:
+            self.hotkey_sequence = self.hotkey.current
+            self._config["hotkey"] = self.hotkey_sequence
+            save_config(self._config)
+        self.hotkey_status = msg
+        return ok, msg
 
     def show_panel(self) -> None:
         # 始终以当前光标为锚点（上半屏朝下弹、下半屏朝上弹）。
@@ -640,6 +951,7 @@ class TrayController(QObject):
             return
         log.info("正在退出托盘应用")
         self._stop.set()
+        self.hotkey.shutdown()
         self.runner.stop()
         self._panel.hide()
         self._tray.hide()
