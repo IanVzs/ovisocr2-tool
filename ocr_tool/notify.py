@@ -5,6 +5,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 
+from ocr_tool.proc import system_env
+
 
 def notify(title: str, body: str = "", *, urgency: str = "normal") -> None:
     """发送桌面通知；notify-send 不可用时静默忽略。"""
@@ -19,4 +21,4 @@ def notify(title: str, body: str = "", *, urgency: str = "normal") -> None:
     ]
     if body:
         cmd.append(body)
-    subprocess.run(cmd, check=False, capture_output=True)
+    subprocess.run(cmd, check=False, capture_output=True, env=system_env())

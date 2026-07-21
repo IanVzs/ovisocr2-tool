@@ -230,12 +230,15 @@ class HunyuanOCREngine:
         self._log_fh = open(log_path, "a", encoding="utf-8")  # noqa: SIM115
         log.info("启动 llama-server: %s", " ".join(cmd))
         report(8.0, "启动 llama-server…")
+        from ocr_tool.proc import system_env
+
         self._proc = subprocess.Popen(
             cmd,
             stdout=self._log_fh,
             stderr=subprocess.STDOUT,
             stdin=subprocess.DEVNULL,
             start_new_session=True,
+            env=system_env(),  # 冻结包里用干净环境，llama-server 靠自带 rpath 找库
         )
 
     def ensure_ready(

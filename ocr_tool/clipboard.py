@@ -5,6 +5,8 @@ from __future__ import annotations
 import shutil
 import subprocess
 
+from ocr_tool.proc import system_env
+
 
 class ClipboardError(Exception):
     """剪贴板写入失败。"""
@@ -25,6 +27,7 @@ def _run_clip(cmd: list[str], data: bytes, name: str) -> None:
             check=False,
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
+            env=system_env(),
             timeout=5,
         )
     except subprocess.TimeoutExpired as exc:

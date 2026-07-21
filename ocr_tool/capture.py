@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import shutil
 import subprocess
 import tempfile
@@ -9,6 +10,9 @@ import time
 from pathlib import Path
 
 from ocr_tool.paths import CAPTURE_DIR, ensure_runtime_dir
+from ocr_tool.proc import system_env
+
+log = logging.getLogger("ocrtool")
 
 
 class CaptureCancelled(Exception):
@@ -51,14 +55,23 @@ def capture_region(*, persist: bool = True) -> Path:
             check=False,
             capture_output=True,
             text=True,
+            env=system_env(),  # 冻结包里必须还原干净环境，否则系统 spectacle 加载我们打包的 Qt 崩溃
         )
     except OSError as exc:
         out.unlink(missing_ok=True)
         raise CaptureError(f"无法启动 spectacle: {exc}") from exc
 
-    if result.returncode != 0 or not out.is_file() or out.stat().st_size == 0:
-        out.unlink(missing_ok=True)
-        # Spectacle 取消选区时常返回非 0 且无文件
-        raise CaptureCancelled()
+    if out.is_file() and out.stat().st_size > 0:
+        return out
 
-    return out
+    out.unlink(missing_ok=True)
+    stderr = (result.stderr or "").strip()
+    # spectacle 崩溃（如库不匹配）会打印错误到 stderr；此时是真错误，别当成用户取消。
+    crashed = result.returncode not in (0, 1) or (
+        stderr and any(k in stderr.lower() for k in ("error", "cannot", "symbol", "undefined", "version", "abort"))
+    )
+    if crashed:
+        log.warning("spectacle 异常退出 code=%s stderr=%s", result.returncode, stderr[:300])
+        raise CaptureError(f"截图组件异常退出(code={result.returncode})：{stderr[:200] or '无输出'}")
+    # 正常取消：返回非 0 且无文件、无错误输出
+    raise CaptureCancelled()
