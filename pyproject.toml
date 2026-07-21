@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "ocr-tool"
+version = "0.1.0"
+description = "区域截图 OCR 工具（HunyuanOCR via llama.cpp，系统托盘）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+authors = [{ name = "IanVzs" }]
+# 模型不再进程内加载：推理跑在本地 llama-server(GGUF)，本包只做截图 + HTTP 客户端 + 托盘。
+dependencies = [
+    "pillow",
+    "requests",
+    "PySide6",
+]
+
+[project.scripts]
+ocr-tool = "ocr_tool.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["ocr_tool*"]

@@ -1,0 +1,13 @@
+.venv/
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+third_party/
+ocr_tool/_version.py
+*.png
+!packaging/*.png
+.DS_Store

@@ -1,0 +1,5 @@
+# OCR工具运行依赖。推理在本地 llama-server(GGUF) 里，本包只做截图 + HTTP + 托盘。
+# 需要另装 llama.cpp 的 llama-server(b8670+，支持 HunyuanOCR 视觉)，见 Makefile: make install-llama
+pillow
+requests
+PySide6

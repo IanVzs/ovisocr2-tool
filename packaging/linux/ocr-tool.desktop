@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=OCR工具
+GenericName=Screen Region OCR
+Comment=区域截图 → HunyuanOCR 识别 → 复制到剪贴板
+Exec=ocr-tool
+Icon=ocr-tool
+Terminal=false
+Categories=Utility;Graphics;
+Keywords=ocr;screenshot;hunyuan;text;截图;识别;
+StartupNotify=true
+StartupWMClass=ocr-tool

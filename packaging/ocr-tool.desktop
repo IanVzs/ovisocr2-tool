@@ -1,0 +1,14 @@
+[Desktop Entry]
+Type=Application
+Version=1.0
+Name=OCR工具
+Name[zh_CN]=OCR工具
+Comment=区域截图并用 HunyuanOCR 识别为 Markdown，结果写入剪贴板
+Comment[zh_CN]=区域截图并用 HunyuanOCR 识别为 Markdown，结果写入剪贴板
+Exec=@PYTHON@ -m ocr_tool
+Path=@ROOT@
+Icon=@ICON@
+Terminal=false
+Categories=Utility;OCR;
+Keywords=OCR;screenshot;HunyuanOCR;截图;识别;
+StartupNotify=false

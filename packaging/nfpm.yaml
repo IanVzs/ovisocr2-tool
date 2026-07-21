@@ -1,0 +1,43 @@
+# nfpm 配置：生成 deb 与 rpm 包（内含 PyInstaller 自带运行时，无需系统 Python）。
+# https://nfpm.goreleaser.com/configuration/
+#
+# 调用（Makefile 注入 VERSION）：
+#   VERSION=0.1.0 nfpm pkg --packager deb --config packaging/nfpm.yaml --target dist/pkg/
+#   VERSION=0.1.0 nfpm pkg --packager rpm --config packaging/nfpm.yaml --target dist/pkg/
+#
+# 注意：模型与 llama-server 不随包分发（约 1.3GB，过大）。安装后首次运行：
+#   ocr-tool --setup-backend   # 下载到 ~/.local/share/ocr-tool/
+
+name: ocr-tool
+arch: amd64
+platform: linux
+version: ${VERSION}
+section: utils
+priority: optional
+maintainer: IanVzs <ianvzs@outlook.com>
+description: |
+  区域截图 OCR 工具：Spectacle 框选 → HunyuanOCR(llama.cpp) 识别为 Markdown →
+  写入剪贴板。自带 Python 运行时，无需系统 Python。首次运行需 `ocr-tool --setup-backend`
+  下载模型与推理后端到 ~/.local/share/ocr-tool/。
+vendor: IanVzs
+license: Apache-2.0
+
+overrides:
+  deb:
+    depends:
+      - libxcb-cursor0
+  rpm:
+    depends:
+      - xcb-util-cursor
+
+contents:
+  - src: ./dist/ocr-tool/
+    dst: /opt/ocr-tool/
+    type: tree
+  - src: /opt/ocr-tool/ocr-tool
+    dst: /usr/bin/ocr-tool
+    type: symlink
+  - src: ./packaging/linux/ocr-tool.desktop
+    dst: /usr/share/applications/ocr-tool.desktop
+  - src: ./packaging/ocr-tool-icon-256.png
+    dst: /usr/share/icons/hicolor/256x256/apps/ocr-tool.png
