@@ -1,6 +1,6 @@
 # OCR工具（区域截图 OCR）
 
-系统托盘小工具：点击后框选屏幕区域 → 用 [HunyuanOCR](https://github.com/Tencent-Hunyuan/HunyuanOCR) 解析为 Markdown → 写入系统剪贴板，并在托盘任务面板查看进度。
+系统托盘小工具：点击后框选屏幕区域 → 用 [HunyuanOCR](https://github.com/Tencent-Hunyuan/HunyuanOCR) 解析为 Markdown → 写入系统剪贴板，并在托盘任务面板查看进度。CPU友好。
 
 ## 架构（分前后端，但都在本机、由应用自管）
 
@@ -20,21 +20,29 @@
 - **后端**：`llama-server`（llama.cpp），本机子进程，**应用启动时自动拉起、就绪后才截图、退出时自动关闭**。
 - 也可让应用连接**外部已运行**的服务（设 `OCR_TOOL_SERVER_URL`），此时应用不代管其生命周期。
 
+
+
+## 屏幕截图
+
+![demo png](snapshots/snapshots_20261016_104028.png)
+
 ## 模型与存储路径
 
-| 项 | 内容 |
-|----|------|
-| 模型 | [HunyuanOCR-1.5](https://github.com/Tencent-Hunyuan/HunyuanOCR)（腾讯混元，端到端 OCR 视觉语言模型，~1B 参数） |
-| GGUF 来源 | 官方 [`ggml-org/HunyuanOCR-GGUF`](https://huggingface.co/ggml-org/HunyuanOCR-GGUF)（**必须官方**，见下方注意） |
-| 量化 | Q8_0 |
-| 文本模型 | `~/.local/share/ocr-tool/models/HunyuanOCR-Q8_0.gguf`（~578MB） |
-| 视觉编码器(mmproj) | `~/.local/share/ocr-tool/models/mmproj-HunyuanOCR-Q8_0.gguf`（~733MB） |
-| 推理后端二进制 | `~/.local/share/ocr-tool/llama-bin/<release>/llama-server`（预编译，默认 Vulkan 版） |
-| `-hf` 兜底下载缓存 | `~/.cache/llama.cpp/`（仅当本地无 GGUF、走在线拉取时） |
+
+| 项             | 内容                                                                                               |
+| ------------- | ------------------------------------------------------------------------------------------------ |
+| 模型            | [HunyuanOCR-1.5](https://github.com/Tencent-Hunyuan/HunyuanOCR)（腾讯混元，端到端 OCR 视觉语言模型，~1B 参数）      |
+| GGUF 来源       | 官方 `[ggml-org/HunyuanOCR-GGUF](https://huggingface.co/ggml-org/HunyuanOCR-GGUF)`（**必须官方**，见下方注意） |
+| 量化            | Q8_0                                                                                             |
+| 文本模型          | `~/.local/share/ocr-tool/models/HunyuanOCR-Q8_0.gguf`（~578MB）                                    |
+| 视觉编码器(mmproj) | `~/.local/share/ocr-tool/models/mmproj-HunyuanOCR-Q8_0.gguf`（~733MB）                             |
+| 推理后端二进制       | `~/.local/share/ocr-tool/llama-bin/<release>/llama-server`（预编译，默认 Vulkan 版）                      |
+| `-hf` 兜底下载缓存  | `~/.cache/llama.cpp/`（仅当本地无 GGUF、走在线拉取时）                                                         |
+
 
 模型与后端合计约 **1.3GB**，统一放在**共享数据目录** `~/.local/share/ocr-tool/`
-（遵循 `XDG_DATA_HOME`，可用 `OCR_TOOL_DATA_DIR` 覆盖）。**`make run`（调试）与独立安装版
-（`make install-app`）读同一份**，不会重复下载。旧版曾放在项目内 `third_party/`，仍作兼容回退。
+（遵循 `XDG_DATA_HOME`，可用 `OCR_TOOL_DATA_DIR` 覆盖）。`make run`**（调试）与独立安装版
+（**`make install-app`**）读同一份**，不会重复下载。旧版曾放在项目内 `third_party/`，仍作兼容回退。
 
 ### 模型加载 / 使用切换策略
 
@@ -50,15 +58,19 @@
 > ⚠️ 必须用官方 `ggml-org/HunyuanOCR-GGUF`。第三方旧 GGUF 的投影层类型 `hunyuanocr`
 > 在新版 llama.cpp（b9263+）已并入 HunyuanVL，会报 `unknown projector type: hunyuanocr`。
 
+
+
 ## 系统依赖
 
-| 用途 | Fedora 包 / 命令 |
-|------|----------------|
-| 区域截图 | `spectacle`（`sudo dnf install spectacle`） |
-| 剪贴板 (Wayland) | `wl-copy`（`sudo dnf install wl-clipboard`） |
-| 桌面通知 | `notify-send`（`libnotify`） |
-| 托盘 UI | `PySide6`（`pip install` 时自动安装） |
-| 推理后端 | `llama-server`（llama.cpp b8670+，支持 HunyuanOCR 视觉，由 `make install-llama` 下载预编译版） |
+
+| 用途            | Fedora 包 / 命令                                                                   |
+| ------------- | ------------------------------------------------------------------------------- |
+| 区域截图          | `spectacle`（`sudo dnf install spectacle`）                                       |
+| 剪贴板 (Wayland) | `wl-copy`（`sudo dnf install wl-clipboard`）                                      |
+| 桌面通知          | `notify-send`（`libnotify`）                                                      |
+| 托盘 UI         | `PySide6`（`pip install` 时自动安装）                                                  |
+| 推理后端          | `llama-server`（llama.cpp b8670+，支持 HunyuanOCR 视觉，由 `make install-llama` 下载预编译版） |
+
 
 本机需 **Python ≥ 3.10**。
 
@@ -73,9 +85,9 @@ make install-llama   # 下载预编译 llama-server + HunyuanOCR 官方 GGUF（�
 `make install-llama` **不本地编译**（多进程 g++ 会打爆内存），而是：
 
 - 从 llama.cpp GitHub release 下载 **Vulkan 版**预编译 `llama-server`
-  → `~/.local/share/ocr-tool/llama-bin/`（核显加速；无 GPU 的机器上会自动跑 CPU）
+→ `~/.local/share/ocr-tool/llama-bin/`（核显加速；无 GPU 的机器上会自动跑 CPU）
 - 从官方 `ggml-org/HunyuanOCR-GGUF` 下载 Q8_0 文本模型 + mmproj 视觉编码器（共约 **1.3GB**）
-  → `~/.local/share/ocr-tool/models/`
+→ `~/.local/share/ocr-tool/models/`
 
 **核显加速**：默认 Vulkan 版 + `-ngl 99` 全量 offload。实测 AMD 核显(RADV)上一屏文字冷启动
 约 3~5s（纯 CPU 约 11~13s）。若 Vulkan 初始化失败会自动回退纯 CPU，不会中断。
@@ -93,16 +105,20 @@ OCR_TOOL_LLAMA_VARIANT=cpu make install-llama
 export LLAMA_SERVER_BIN=/path/to/llama-server
 ```
 
+
+
 ### 两种安装方式
 
 - **开发/调试**：`make install`（editable）+ `make run`——依赖本源码目录，改代码即时生效。
 - **独立安装（不依赖源码）**：`make install-app`——用 PyInstaller 打成自带运行时的独立包，
-  装到 `~/.local/lib/ocr-tool/` 并注册桌面入口；删掉源码目录也能从菜单/图标启动。详见「打包 / 独立安装」。
+装到 `~/.local/lib/ocr-tool/` 并注册桌面入口；删掉源码目录也能从菜单/图标启动。详见「打包 / 独立安装」。
 
 桌面入口：
 
 - `~/.local/share/applications/ocr-tool.desktop`
 - `~/桌面/ocr-tool.desktop`（若存在「桌面」目录）
+
+
 
 ## 使用
 
@@ -135,19 +151,23 @@ make help
 
 ## 配置（环境变量）
 
-| 变量 | 默认 | 说明 |
-|------|------|------|
-| `LLAMA_SERVER_BIN` | 自动发现 | `llama-server` 可执行文件路径 |
-| `OCR_TOOL_SERVER_URL` | 空 | 指定外部已运行的服务地址；设置后本应用不代管其生命周期 |
-| `OCR_TOOL_PORT` | `8080` | 自管服务的端口 |
-| `OCR_TOOL_HF_REPO` | `ggml-org/HunyuanOCR-GGUF` | `-hf` 兜底拉取的 GGUF 仓库（本地已有则不用） |
-| `OCR_TOOL_MODEL_PATH` / `OCR_TOOL_MMPROJ_PATH` | 自动发现共享数据目录 | 本地 GGUF 文件路径 |
-| `OCR_TOOL_DATA_DIR` | `~/.local/share/ocr-tool` | 模型/后端共享数据目录（dev 与安装版共用） |
-| `OCR_TOOL_MAX_TOKENS` | `4096` | 生成上限 |
-| `OCR_TOOL_MAX_SIDE` | `2048` | 送入前图像最长边缩放上限（越小越快） |
-| `OCR_TOOL_TASK` | `doc_parse` | 任务类型：`doc_parse`/`structured_parse`/`formula`/`table`/`chart_parse` |
-| `OCR_TOOL_NGL` | `99` | GPU offload 层数；`0`=强制纯 CPU。GPU 起不来会自动回退 CPU |
-| `OCR_TOOL_LLAMA_VARIANT` | `vulkan` | `make install-llama` 下载的后端：`vulkan`(核显) / `cpu` |
+
+| 变量                                             | 默认                         | 说明                                                                  |
+| ---------------------------------------------- | -------------------------- | ------------------------------------------------------------------- |
+| `LLAMA_SERVER_BIN`                             | 自动发现                       | `llama-server` 可执行文件路径                                              |
+| `OCR_TOOL_SERVER_URL`                          | 空                          | 指定外部已运行的服务地址；设置后本应用不代管其生命周期                                         |
+| `OCR_TOOL_PORT`                                | `8080`                     | 自管服务的端口                                                             |
+| `OCR_TOOL_HF_REPO`                             | `ggml-org/HunyuanOCR-GGUF` | `-hf` 兜底拉取的 GGUF 仓库（本地已有则不用）                                        |
+| `OCR_TOOL_MODEL_PATH` / `OCR_TOOL_MMPROJ_PATH` | 自动发现共享数据目录                 | 本地 GGUF 文件路径                                                        |
+| `OCR_TOOL_DATA_DIR`                            | `~/.local/share/ocr-tool`  | 模型/后端共享数据目录（dev 与安装版共用）                                             |
+| `OCR_TOOL_MAX_TOKENS`                          | `4096`                     | 生成上限                                                                |
+| `OCR_TOOL_MAX_SIDE`                            | `2048`                     | 送入前图像最长边缩放上限（越小越快）                                                  |
+| `OCR_TOOL_TASK`                                | `doc_parse`                | 任务类型：`doc_parse`/`structured_parse`/`formula`/`table`/`chart_parse` |
+| `OCR_TOOL_NGL`                                 | `99`                       | GPU offload 层数；`0`=强制纯 CPU。GPU 起不来会自动回退 CPU                         |
+| `OCR_TOOL_LLAMA_VARIANT`                       | `vulkan`                   | `make install-llama` 下载的后端：`vulkan`(核显) / `cpu`                     |
+
+
+
 
 ## 打包 / 独立安装
 
@@ -162,9 +182,11 @@ make pkg-clean      # 清理 dist/ build/ 与 _version.py
 ```
 
 - 模型与 `llama-server` **不打进包**（约 1.3GB，过大），仍在共享数据目录。
-  独立安装版首次使用先下载后端：`ocr-tool --setup-backend`（若已 `make install-llama` 过则直接共用）。
+独立安装版首次使用先下载后端：`ocr-tool --setup-backend`（若已 `make install-llama` 过则直接共用）。
 - 打包前会 `make generate-version-file` 把版本冻结进 `ocr_tool/_version.py`，
-  让无 `pyproject.toml` 的产物也能正确显示版本。
+让无 `pyproject.toml` 的产物也能正确显示版本。
+
+
 
 ## 日志
 
@@ -172,21 +194,25 @@ make pkg-clean      # 清理 dist/ build/ 与 _version.py
 - 推理后端日志：`llama-server.log`（同目录）
 - 后台拉起日志：`ocr-tool-spawn.log`（同目录）
 
+
+
 ## Make 命令
 
-| 命令 | 说明 |
-|------|------|
-| `make` / `make help` | 列出命令 |
-| `make install` | 开发用：Python 依赖 + editable + 桌面入口 |
-| `make install-llama` | 下载预编译 `llama-server`(默认 Vulkan) + 官方 GGUF 到共享目录（免编译） |
-| `make install-app` | 独立安装：PyInstaller 打包并装到 `~/.local`（不依赖源码） |
-| `make pkg-binary` / `make pkg` | 打独立目录 / 生成 deb+rpm（需 nfpm） |
-| `make pkg-clean` | 清理打包产物 |
-| `make serve` | 手动前台启动推理服务（调试） |
-| `make install-desktop` | 仅装桌面入口（不跑 pip） |
-| `make run` | 截图 OCR（托盘单例） |
-| `make quit` / `make status` | 管理托盘应用 |
-| `make show-version` | 打印版本（读自 `pyproject.toml`） |
-| `make set-version VERSION=x.y.z` | 改版本；若在 git 仓库则自动 commit |
+
+| 命令                               | 说明                                                   |
+| -------------------------------- | ---------------------------------------------------- |
+| `make` / `make help`             | 列出命令                                                 |
+| `make install`                   | 开发用：Python 依赖 + editable + 桌面入口                      |
+| `make install-llama`             | 下载预编译 `llama-server`(默认 Vulkan) + 官方 GGUF 到共享目录（免编译） |
+| `make install-app`               | 独立安装：PyInstaller 打包并装到 `~/.local`（不依赖源码）             |
+| `make pkg-binary` / `make pkg`   | 打独立目录 / 生成 deb+rpm（需 nfpm）                           |
+| `make pkg-clean`                 | 清理打包产物                                               |
+| `make serve`                     | 手动前台启动推理服务（调试）                                       |
+| `make install-desktop`           | 仅装桌面入口（不跑 pip）                                       |
+| `make run`                       | 截图 OCR（托盘单例）                                         |
+| `make quit` / `make status`      | 管理托盘应用                                               |
+| `make show-version`              | 打印版本（读自 `pyproject.toml`）                            |
+| `make set-version VERSION=x.y.z` | 改版本；若在 git 仓库则自动 commit                              |
+
 
 版本号唯一权威源：`pyproject.toml` 的 `version` 字段。
