@@ -1,10 +1,11 @@
-"""区域截图：复用系统 Spectacle（KDE / Wayland）。"""
+"""区域截图：Linux 复用系统 Spectacle（KDE/Wayland），Windows 用 Qt 蒙层 + mss。"""
 
 from __future__ import annotations
 
 import logging
 import shutil
 import subprocess
+import sys
 import tempfile
 import time
 from pathlib import Path
@@ -20,7 +21,7 @@ class CaptureCancelled(Exception):
 
 
 class CaptureError(Exception):
-    """截图失败（Spectacle 缺失或非取消错误）。"""
+    """截图失败（截图组件缺失或非取消错误）。"""
 
 
 def capture_region(*, persist: bool = True) -> Path:
@@ -29,6 +30,12 @@ def capture_region(*, persist: bool = True) -> Path:
     persist=True 时保存到运行时 captures/ 目录（供托盘「查看原图」）。
     取消框选时抛出 ``CaptureCancelled``；其它失败抛出 ``CaptureError``。
     """
+    if sys.platform == "win32":
+        # Windows 用 Qt 自建框选蒙层，避免依赖外部截图工具。
+        from ocr_tool.win_capture import capture_region_win
+
+        return capture_region_win(persist=persist)
+
     spectacle = shutil.which("spectacle")
     if not spectacle:
         raise CaptureError(

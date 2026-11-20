@@ -2,6 +2,11 @@
 
 系统托盘小工具：点击后框选屏幕区域 → 用 [HunyuanOCR](https://github.com/Tencent-Hunyuan/HunyuanOCR) 解析为 Markdown → 写入系统剪贴板，并在托盘任务面板查看进度。CPU友好。
 
+> **Windows 11 也支持**：本项目是跨平台 Python 程序，Windows 上只是多了一条 `win32` 平台分支
+> （Qt 框选蒙层 + **mss** 基于 GDI 的物理像素抓屏 + Win32 剪贴板 / 全局快捷键），
+> 无需 WSL 或 spectacle。截图用 `GetCursorPos` 物理坐标直连 mss，支持多显示器与每屏不同 DPI。
+> 见下方「Windows 安装」。Linux(KDE) 行为完全不变。
+
 ## 架构（分前后端，但都在本机、由应用自管）
 
 本工具逻辑上分两层，运行时是**同机两个进程**，不是需要分开部署的 C/S：
@@ -74,7 +79,56 @@
 
 本机需 **Python ≥ 3.10**。
 
-## 安装
+## Windows 安装
+
+**推荐：直接下载 Release 打包好的 exe（免装 Python）**
+
+1. 从 GitHub Releases 下载 `ocr-tool-x.y.z-windows-x64.zip` 并解压；
+2. 首次使用先下载模型与推理后端（约 1.3GB）：`ocr-tool.exe --setup-backend`；
+3. 双击 `ocr-tool.exe` 启动托盘。
+
+**源码安装**（开发/调试，前置 Python ≥ 3.10，安装时勾选 *Add Python to PATH*）：
+
+```bat
+python -m pip install -r requirements.txt
+python -m pip install -e .
+python -m ocr_tool --setup-backend   :: 下载后端 + 模型（约 1.3GB）
+```
+
+启动与常用命令（命令行执行）：
+
+```bat
+python -m ocr_tool                 :: 启动托盘并立即框选截图识别
+python -m ocr_tool --foreground    :: 前台运行托盘（一般不用）
+python -m ocr_tool --status        :: 查看任务状态
+python -m ocr_tool --quit          :: 退出托盘
+```
+
+也可以在 Git Bash 里用与 Linux 完全相同的 make 命令：`make run` / `make status` / `make quit` /
+`make install-llama`（Makefile 已做 Windows 平台适配）。
+
+**在 Windows 打包 exe（发布用）**：Git Bash 中执行
+
+```bash
+make build-win   # → dist/ocr-tool-x.y.z-windows-x64.zip，直接上传 GitHub Release
+```
+
+打包用 PyInstaller（onedir，自带 Python 运行时，无需用户装 Python）；模型与 `llama-server.exe`
+**不打进包**（约 1.3GB），用户首次运行 `ocr-tool.exe --setup-backend` 下载。
+
+> 重新打包前请先退出正在运行的 `dist/ocr-tool/ocr-tool.exe` 托盘（右键托盘图标 → 退出），
+> 否则 Windows 会锁住该目录，PyInstaller 清空旧产物时报 "Device or resource busy"。
+
+- 数据/模型目录：`%LOCALAPPDATA%\ocr-tool\`（模型在 `models\`，后端在 `llama-bin\`）。
+- 全局快捷键默认 **Win+Shift+O**；若被其他程序占用，面板会提示，点快捷键按钮重新录制一个即可。
+- 后端默认 Vulkan 版（核显加速）；无 Vulkan 会由应用自动回退 CPU。也可强制 CPU 版：
+  `set OCR_TOOL_LLAMA_VARIANT=cpu && python -m ocr_tool --setup-backend`
+- 网络：所有下载**直链优先、失败自动回退镜像**（GitHub release → ghproxy.net，
+  HuggingFace → hf-mirror.com）；可用 `OCR_TOOL_GH_PROXY=direct` 关闭 GitHub 镜像、
+  `OCR_TOOL_HF_ENDPOINT` 指定 HF 镜像。
+- 日志：`%LOCALAPPDATA%\ocr-tool\runtime\ocr-tool.log`。
+
+## 安装（Linux / Fedora）
 
 ```bash
 cd ~/桌面/ovisocr2-tool
@@ -178,6 +232,7 @@ make help
 make pkg-binary     # → dist/ocr-tool/ 独立运行目录（含 ocr-tool 可执行）
 make install-app    # 打包并安装到 ~/.local/lib/ocr-tool + 注册桌面入口
 make pkg            # 生成 .deb + .rpm 到 dist/pkg/（需 nfpm）
+make build-win      # [Windows] 打包 exe → dist/ocr-tool-x.y.z-windows-x64.zip（传 GitHub Release）
 make pkg-clean      # 清理 dist/ build/ 与 _version.py
 ```
 
@@ -206,6 +261,7 @@ make pkg-clean      # 清理 dist/ build/ 与 _version.py
 | `make install-llama`             | 下载预编译 `llama-server`(默认 Vulkan) + 官方 GGUF 到共享目录（免编译） |
 | `make install-app`               | 独立安装：PyInstaller 打包并装到 `~/.local`（不依赖源码）             |
 | `make pkg-binary` / `make pkg`   | 打独立目录 / 生成 deb+rpm（需 nfpm）                           |
+| `make build-win`                 | [Windows] 打包 exe 并生成发布用 zip（Git Bash 中执行）            |
 | `make pkg-clean`                 | 清理打包产物                                               |
 | `make serve`                     | 手动前台启动推理服务（调试）                                       |
 | `make install-desktop`           | 仅装桌面入口（不跑 pip）                                       |

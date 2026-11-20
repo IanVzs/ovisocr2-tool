@@ -8,13 +8,25 @@ XDG_DATA_HOME 下的共享数据目录，dev(`make run`) 与打包安装版共�
 from __future__ import annotations
 
 import os
+import sys
 from pathlib import Path
 
 APP_ID = "ocr-tool"
+IS_WINDOWS = sys.platform == "win32"
 
-RUNTIME_DIR = Path(
-    os.environ.get("XDG_RUNTIME_DIR", f"/tmp/ocr-tool-{os.getuid()}")
-)
+
+def _runtime_dir() -> Path:
+    if IS_WINDOWS:
+        base = (
+            os.environ.get("LOCALAPPDATA")
+            or os.environ.get("APPDATA")
+            or str(Path.home() / "AppData" / "Local")
+        )
+        return Path(base) / APP_ID / "runtime"
+    return Path(os.environ.get("XDG_RUNTIME_DIR", f"/tmp/ocr-tool-{os.getuid()}"))
+
+
+RUNTIME_DIR = _runtime_dir()
 SOCKET_PATH = RUNTIME_DIR / "ocr-tool.sock"
 PID_PATH = RUNTIME_DIR / "ocr-tool.pid"
 CAPTURE_DIR = RUNTIME_DIR / "captures"
@@ -25,6 +37,13 @@ def _data_home() -> Path:
     override = os.environ.get("OCR_TOOL_DATA_DIR", "").strip()
     if override:
         return Path(override).expanduser()
+    if IS_WINDOWS:
+        base = (
+            os.environ.get("LOCALAPPDATA")
+            or os.environ.get("APPDATA")
+            or str(Path.home() / "AppData" / "Local")
+        )
+        return Path(base) / APP_ID
     xdg = os.environ.get("XDG_DATA_HOME", "").strip()
     base = Path(xdg) if xdg else Path.home() / ".local" / "share"
     return base / APP_ID

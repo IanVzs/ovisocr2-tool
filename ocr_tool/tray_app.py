@@ -51,7 +51,13 @@ from PySide6.QtWidgets import (
 from ocr_tool.capture import CaptureCancelled, CaptureError, capture_region
 from ocr_tool.clipboard import ClipboardError, copy_text
 from ocr_tool.config import DEFAULT_HOTKEY, load_config, save_config
-from ocr_tool.hotkey import GlobalHotkey
+
+# 全局快捷键：Linux 走 KDE KGlobalAccel(DBus)，Windows 走 Win32 RegisterHotKey。
+if sys.platform == "win32":
+    from ocr_tool.win_hotkey import GlobalHotkey
+else:
+    from ocr_tool.hotkey import GlobalHotkey
+
 from ocr_tool.ipc import serve_ipc
 from ocr_tool.job_runner import JobRunner
 from ocr_tool.notify import notify
@@ -989,7 +995,9 @@ def run_tray_app(*, capture_on_start: bool = True) -> int:
     # 优先 XWayland(xcb)：原生 Wayland 下应用无法 move() 自身窗口、QCursor.pos()
     # 不准、也收不到失焦事件，导致「贴光标弹出 / 失焦关闭」失效。xcb 下这些按
     # X11 语义正常工作；xcb 不可用时回退 wayland。用户可用 QT_QPA_PLATFORM 覆盖。
-    os.environ.setdefault("QT_QPA_PLATFORM", "xcb;wayland")
+    # Windows 用默认 windows 平台插件，不能设 xcb/wayland。
+    if sys.platform != "win32":
+        os.environ.setdefault("QT_QPA_PLATFORM", "xcb;wayland")
     app = QApplication.instance() or QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     app.setApplicationName("OCR工具")

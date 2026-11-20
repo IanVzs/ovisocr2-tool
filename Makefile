@@ -1,13 +1,37 @@
 # 项目常用开发命令。
 .PHONY: help run install install-desktop install-llama serve quit status \
 	show-version set-version generate-version-file \
-	pkg-binary install-app pkg-deb pkg-rpm pkg pkg-clean
+	pkg-binary install-app pkg-deb pkg-rpm pkg pkg-clean build-win
+
+# Windows（Git Bash）下 venv 布局是 Scripts/python.exe，且系统 Python 命令是 python 而非 python3。
+VENV := .venv
+ifeq ($(OS),Windows_NT)
+  PY_BIN := Scripts
+  PY_EXE := python.exe
+  PY_SYS := python
+else
+  PY_BIN := bin
+  PY_EXE := python
+  PY_SYS := python3
+endif
+
+# 优先：命令行/环境 PYTHON → 已激活 VIRTUAL_ENV → 项目 .venv → 系统 Python
+ifeq ($(origin PYTHON),undefined)
+  ifneq ($(VIRTUAL_ENV),)
+    PYTHON := $(VIRTUAL_ENV)/$(PY_BIN)/$(PY_EXE)
+  else ifneq ($(wildcard $(VENV)/$(PY_BIN)/$(PY_EXE)),)
+    PYTHON := $(VENV)/$(PY_BIN)/$(PY_EXE)
+  else
+    PYTHON := $(PY_SYS)
+  endif
+endif
 
 # 版本号唯一权威源是 pyproject.toml。打包时冻结到 ocr_tool/_version.py 供运行时读。
-VERSION := $(shell awk -F'"' '/^version[[:space:]]*=/ {print $$2; exit}' pyproject.toml)
+# 用 Python 脚本取值而非 awk：Windows 版 make（chocolatey，非 MSYS）的 $(shell) 走 cmd，
+# 单引号会被原样传递导致失配。
+VERSION := $(shell $(PYTHON) scripts/get_version.py)
 VERSION_FILE := ocr_tool/_version.py
 VERSION_SEMVER_RE := ^[0-9]+\.[0-9]+\.[0-9]+$$
-VENV := .venv
 DESKTOP_SRC := packaging/ocr-tool.desktop
 DESKTOP_DST := $(HOME)/.local/share/applications/ocr-tool.desktop
 DESKTOP_LINK := $(HOME)/桌面/ocr-tool.desktop
@@ -30,17 +54,8 @@ endif
 MODELS_DIR := $(DATA_DIR)/models
 LLAMA_BIN = $(shell ls $(DATA_DIR)/llama-bin/**/llama-server 2>/dev/null | head -1)
 PORT ?= 8080
-
-# 优先：命令行/环境 PYTHON → 已激活 VIRTUAL_ENV → 项目 .venv → python3
-ifeq ($(origin PYTHON),undefined)
-  ifneq ($(VIRTUAL_ENV),)
-    PYTHON := $(VIRTUAL_ENV)/bin/python
-  else ifneq ($(wildcard $(VENV)/bin/python),)
-    PYTHON := $(VENV)/bin/python
-  else
-    PYTHON := python3
-  endif
-endif
+# Windows 打包产物（make build-win；Git Bash 下运行 make 即可，与 Linux 同一套命令）。
+WIN_ZIP_NAME := ocr-tool-$(VERSION)-windows-x64.zip
 
 help: ## 显示可用 make 命令及说明
 	@echo "可用命令："
@@ -51,11 +66,15 @@ help: ## 显示可用 make 命令及说明
 run: ## 托盘截图 OCR（终端打印进度日志）
 	$(PYTHON) -m ocr_tool
 
-install: ## 创建/使用 .venv，装 Python 依赖 + editable + 桌面入口
+install: ## 创建/使用 .venv，装 Python 依赖 + editable + 桌面入口(Linux)
 	$(PYTHON) -m pip install --upgrade pip
 	$(PYTHON) -m pip install -r requirements.txt
 	$(PYTHON) -m pip install -e .
+ifeq ($(OS),Windows_NT)
+	@echo "Windows 无 .desktop 入口；用 make run 或 python -m ocr_tool 启动即可"
+else
 	@$(MAKE) install-desktop PYTHON="$(PYTHON)"
+endif
 	@echo "提示：还需推理后端（llama-server + 模型）。若未安装，运行 make install-llama"
 
 install-llama: ## 下载预编译 llama-server(默认 Vulkan) + 官方 GGUF 到共享数据目录（免编译）
@@ -103,8 +122,17 @@ generate-version-file: ## 从 pyproject.toml 冻结版本到 ocr_tool/_version.p
 	@echo "已生成 $(VERSION_FILE) -> $(VERSION)"
 
 pkg-binary: generate-version-file ## PyInstaller 打成 dist/ocr-tool/ 独立运行目录（不依赖源码）
-	@command -v pyinstaller >/dev/null 2>&1 || $(PYTHON) -m pip install pyinstaller
+	@$(PYTHON) -m PyInstaller --version >/dev/null 2>&1 || $(PYTHON) -m pip install pyinstaller
 	$(PYTHON) -m PyInstaller --noconfirm --clean packaging/pyinstaller/ocr-tool.spec
+
+build-win: generate-version-file ## [Windows] 打包 exe 并生成发布用 zip（可直接传 GitHub Release）
+	@$(PYTHON) -m PyInstaller --version >/dev/null 2>&1 || $(PYTHON) -m pip install pyinstaller
+	@$(PYTHON) scripts/make_ico.py
+	$(PYTHON) -m PyInstaller --noconfirm --clean packaging/pyinstaller/ocr-tool.spec
+	@cd $(DIST_DIR) && $(PYTHON) -m zipfile -c "$(WIN_ZIP_NAME)" ocr-tool
+	@echo "已生成 $(DIST_DIR)/$(WIN_ZIP_NAME)"
+	@echo "发布：上传到 GitHub Release 即可；用户解压后运行 ocr-tool.exe，"
+	@echo "      首次使用先执行 ocr-tool.exe --setup-backend 下载模型与后端（约 1.3GB）"
 
 install-app: pkg-binary ## 把独立包安装到 ~/.local（不依赖源码目录），装桌面入口
 	@rm -rf "$(APP_LIB_DIR)"
@@ -141,8 +169,8 @@ show-version: ## 显示当前版本号（读自 pyproject.toml）
 	@echo $(VERSION)
 
 set-version: ## 用法: make set-version VERSION=x.y.z  统一改 pyproject.toml 并 git commit
-	@test -n "$(VERSION)" || (echo '用法: make set-version VERSION=x.y.z  （示例: make set-version VERSION=1.0.1）' >&2 && false)
-	@echo "$(VERSION)" | grep -qE '$(VERSION_SEMVER_RE)' || (echo 'VERSION 需为语义化版本号 x.y.z（三位数字段）' >&2 && false)
+	@test -n "$(VERSION)" || (echo 'Usage: make set-version VERSION=x.y.z  (e.g. make set-version VERSION=1.0.1)' >&2 && false)
+	@echo "$(VERSION)" | grep -qE '$(VERSION_SEMVER_RE)' || (echo 'VERSION must be a semver like x.y.z (three numeric parts)' >&2 && false)
 	@sed -i 's/^version = ".*"/version = "$(VERSION)"/' pyproject.toml
 	@echo "已统一设置为 $(VERSION)"
 	@if git rev-parse --is-inside-work-tree >/dev/null 2>&1; then \

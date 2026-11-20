@@ -16,7 +16,8 @@ log = logging.getLogger("ocrtool")
 
 CONFIG_PATH = DATA_DIR / "config.json"
 
-# 首次运行的默认全局快捷键（Meta=Super/Win 键）。空串表示禁用。
+# 首次运行的默认全局快捷键（Meta=Super/Win 键），Windows 与 Linux 统一。
+# 空串表示禁用；若注册失败（被其他程序占用，错误 1409），在面板里重新录制一个即可。
 DEFAULT_HOTKEY = "Meta+Shift+O"
 
 _DEFAULTS: dict[str, Any] = {

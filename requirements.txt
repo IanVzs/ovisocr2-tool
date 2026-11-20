@@ -3,3 +3,4 @@
 pillow
 requests
 PySide6
+mss; sys_platform == "win32"

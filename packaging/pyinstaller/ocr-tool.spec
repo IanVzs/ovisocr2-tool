@@ -14,6 +14,8 @@ from PyInstaller.utils.hooks import collect_submodules
 
 PROJECT_ROOT = Path(SPECPATH).resolve().parent.parent
 APP_NAME = "ocr-tool"
+# Windows exe 图标（make build-win 会先跑 scripts/make_ico.py 生成；缺失则不影响打包）。
+ICON_ICO = PROJECT_ROOT / "packaging" / "ocr-tool-icon.ico"
 
 a = Analysis(
     [str(Path(SPECPATH) / "launcher.py")],
@@ -45,6 +47,7 @@ exe = EXE(
     strip=False,
     upx=False,
     console=False,
+    icon=str(ICON_ICO) if ICON_ICO.is_file() else None,
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,

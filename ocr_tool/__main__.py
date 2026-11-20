@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import sys
 import time
 
@@ -36,6 +37,13 @@ def main(argv: list[str] | None = None) -> int:
         help="前台运行托盘（通常由应用自动拉起）",
     )
     args = parser.parse_args(argv)
+
+    # 无控制台环境（PyInstaller windowed / pythonw）下 sys.stdout 是 None，
+    # 后续 isatty() 与 print() 都会炸，统一接到 devnull。
+    if sys.stdout is None:
+        sys.stdout = open(os.devnull, "w", encoding="utf-8", errors="replace")
+    if sys.stderr is None:
+        sys.stderr = open(os.devnull, "w", encoding="utf-8", errors="replace")
 
     log = setup_logging(to_stdout=args.foreground or sys.stdout.isatty())
 

@@ -10,4 +10,8 @@ third_party/
 ocr_tool/_version.py
 *.png
 !packaging/*.png
+# make build-win 由 PNG 生成的 exe 图标，属构建产物
+packaging/*.ico
+# WorkBuddy 本地项目数据（记忆/日志），不入库
+.workbuddy/
 .DS_Store

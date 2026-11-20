@@ -10,22 +10,48 @@ import sys
 import time
 from typing import Any, Callable
 
-from ocr_tool.paths import PID_PATH, RUNTIME_DIR, SOCKET_PATH, ensure_runtime_dir
+from ocr_tool.paths import (
+    IS_WINDOWS,
+    PID_PATH,
+    RUNTIME_DIR,
+    SOCKET_PATH,
+    ensure_runtime_dir,
+)
 
 _RECV_BUF = 65536
+PORT_PATH = RUNTIME_DIR / "ocr-tool.port"
+
+
+def _connect() -> socket.socket:
+    """建立到托盘的连接（Linux: AF_UNIX；Windows: TCP loopback）。"""
+    if IS_WINDOWS:
+        port = int(PORT_PATH.read_text(encoding="ascii").strip())
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.settimeout(60.0)
+        sock.connect(("127.0.0.1", port))
+        return sock
+    sock = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+    sock.settimeout(60.0)
+    sock.connect(str(SOCKET_PATH))
+    return sock
+
+
+def _alive_marker_exists() -> bool:
+    if IS_WINDOWS:
+        return PORT_PATH.exists()
+    return SOCKET_PATH.exists()
 
 
 def _probe() -> dict | None:
     """探测 socket 对端；失败返回 None。"""
-    if not SOCKET_PATH.exists():
+    if not _alive_marker_exists():
         return None
     try:
-        with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
+        with _connect() as sock:
             sock.settimeout(1.0)
-            sock.connect(str(SOCKET_PATH))
             _send(sock, {"cmd": "ping"})
             return _recv(sock)
-    except OSError:
+    except (OSError, ValueError):
         return None
 
 
@@ -33,16 +59,14 @@ def is_app_alive() -> bool:
     """托盘应用是否在跑。"""
     resp = _probe()
     if not resp or not resp.get("ok"):
-        if SOCKET_PATH.exists() and resp is None:
+        if _alive_marker_exists() and resp is None:
             _cleanup_stale()
         return False
     return True
 
 
 def request(cmd: str, **extra: Any) -> dict:
-    with socket.socket(socket.AF_UNIX, socket.SOCK_STREAM) as sock:
-        sock.settimeout(60.0)
-        sock.connect(str(SOCKET_PATH))
+    with _connect() as sock:
         _send(sock, {"cmd": cmd, **extra})
         return _recv(sock)
 
@@ -90,14 +114,20 @@ def spawn_detached_app() -> None:
         cmd = [sys.executable, "--foreground"]
     else:
         cmd = [sys.executable, "-m", "ocr_tool", "--foreground"]
-    subprocess.Popen(
-        cmd,
-        stdout=log_file,
-        stderr=log_file,
-        stdin=subprocess.DEVNULL,
-        env=env,
-        start_new_session=True,
-    )
+    popen_kwargs: dict[str, Any] = {
+        "stdout": log_file,
+        "stderr": log_file,
+        "stdin": subprocess.DEVNULL,
+        "env": env,
+    }
+    if IS_WINDOWS:
+        # Windows 无 start_new_session，用独立进程组 + 不弹控制台窗口。
+        popen_kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+        )
+    else:
+        popen_kwargs["start_new_session"] = True
+    subprocess.Popen(cmd, **popen_kwargs)
     log_file.close()
     deadline = time.time() + 45
     while time.time() < deadline:
@@ -108,7 +138,8 @@ def spawn_detached_app() -> None:
 
 
 def _cleanup_stale() -> None:
-    for path in (SOCKET_PATH, PID_PATH):
+    paths = (SOCKET_PATH, PID_PATH, PORT_PATH) if IS_WINDOWS else (SOCKET_PATH, PID_PATH)
+    for path in paths:
         try:
             path.unlink(missing_ok=True)
         except OSError:
@@ -148,17 +179,26 @@ Handler = Callable[[dict], dict]
 def serve_ipc(handler: Handler, *, stop_flag: Callable[[], bool]) -> None:
     """后台线程：accept + 处理。"""
     ensure_runtime_dir()
-    if SOCKET_PATH.exists():
-        try:
-            SOCKET_PATH.unlink()
-        except OSError:
-            pass
-
-    server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
-    server.bind(str(SOCKET_PATH))
+    if IS_WINDOWS:
+        PORT_PATH.unlink(missing_ok=True)
+        server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        # 绑定随机空闲端口，写入文件供客户端发现。
+        server.bind(("127.0.0.1", 0))
+        port = server.getsockname()[1]
+        PORT_PATH.write_text(str(port), encoding="ascii")
+        PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
+    else:
+        if SOCKET_PATH.exists():
+            try:
+                SOCKET_PATH.unlink()
+            except OSError:
+                pass
+        server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+        server.bind(str(SOCKET_PATH))
+        PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
     server.listen(8)
     server.settimeout(0.5)
-    PID_PATH.write_text(str(os.getpid()), encoding="utf-8")
 
     try:
         while not stop_flag():

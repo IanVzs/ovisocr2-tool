@@ -14,6 +14,7 @@ import os
 import shutil
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Any, Callable
@@ -175,22 +176,29 @@ class HunyuanOCREngine:
 
     @staticmethod
     def find_llama_server() -> str | None:
+        is_win = sys.platform == "win32"
+        names = ["llama-server.exe", "llama-server"] if is_win else ["llama-server"]
         cand = os.environ.get("LLAMA_SERVER_BIN", "").strip()
         if cand and Path(cand).is_file():
             return cand
-        found = shutil.which("llama-server")
-        if found:
-            return found
+        for name in names:
+            found = shutil.which(name)
+            if found:
+                return found
         from ocr_tool.paths import LLAMA_BIN_DIR
 
         src = Path(__file__).resolve().parents[1] / "third_party"
         # 共享数据目录(预编译)优先；再源码 third_party 预编译/源码构建产物（兼容回退）。
         for base in (LLAMA_BIN_DIR, src / "llama-bin"):
-            for p in sorted(base.glob("**/llama-server")):
-                if p.is_file():
-                    return str(p)
-        legacy = src / "llama.cpp" / "build" / "bin" / "llama-server"
-        return str(legacy) if legacy.is_file() else None
+            for name in names:
+                for p in sorted(base.glob(f"**/{name}")):
+                    if p.is_file():
+                        return str(p)
+        for name in names:
+            legacy = src / "llama.cpp" / "build" / "bin" / name
+            if legacy.is_file():
+                return str(legacy)
+        return None
 
     def _is_up(self, *, timeout: float = 1.0) -> bool:
         import requests
@@ -232,14 +240,19 @@ class HunyuanOCREngine:
         report(8.0, "启动 llama-server…")
         from ocr_tool.proc import system_env
 
-        self._proc = subprocess.Popen(
-            cmd,
-            stdout=self._log_fh,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.DEVNULL,
-            start_new_session=True,
-            env=system_env(),  # 冻结包里用干净环境，llama-server 靠自带 rpath 找库
-        )
+        popen_kwargs: dict[str, object] = {
+            "stdout": self._log_fh,
+            "stderr": subprocess.STDOUT,
+            "stdin": subprocess.DEVNULL,
+            "env": system_env(),  # 冻结包里用干净环境，llama-server 靠自带 rpath 找库
+        }
+        if sys.platform == "win32":
+            popen_kwargs["creationflags"] = (
+                subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+            )
+        else:
+            popen_kwargs["start_new_session"] = True
+        self._proc = subprocess.Popen(cmd, **popen_kwargs)
 
     def ensure_ready(
         self,
@@ -403,20 +416,25 @@ class HunyuanOCREngine:
         proc = self._proc
         self._proc = None
         if proc is not None and proc.poll() is None:
-            try:
-                os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
-            except (OSError, ProcessLookupError):
+            if sys.platform == "win32":
+                from ocr_tool.win_platform import terminate_process_tree
+
+                terminate_process_tree(proc)
+            else:
                 try:
-                    proc.terminate()
-                except OSError:
-                    pass
-            try:
-                proc.wait(timeout=8)
-            except subprocess.TimeoutExpired:
-                try:
-                    os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    os.killpg(os.getpgid(proc.pid), signal.SIGTERM)
                 except (OSError, ProcessLookupError):
-                    pass
+                    try:
+                        proc.terminate()
+                    except OSError:
+                        pass
+                try:
+                    proc.wait(timeout=8)
+                except subprocess.TimeoutExpired:
+                    try:
+                        os.killpg(os.getpgid(proc.pid), signal.SIGKILL)
+                    except (OSError, ProcessLookupError):
+                        pass
         if self._log_fh is not None:
             try:
                 self._log_fh.close()

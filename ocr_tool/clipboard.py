@@ -1,9 +1,10 @@
-"""写入系统剪贴板（Wayland 优先 wl-copy）。"""
+"""写入系统剪贴板：Linux 用 wl-copy/xclip，Windows 用 Win32 API。"""
 
 from __future__ import annotations
 
 import shutil
 import subprocess
+import sys
 
 from ocr_tool.proc import system_env
 
@@ -40,6 +41,12 @@ def _run_clip(cmd: list[str], data: bytes, name: str) -> None:
 
 def copy_text(text: str) -> None:
     """把纯文本写入系统剪贴板。"""
+    if sys.platform == "win32":
+        from ocr_tool.win_platform import win_copy_text
+
+        win_copy_text(text)
+        return
+
     data = text.encode("utf-8")
     wl_copy = shutil.which("wl-copy")
     if wl_copy:
