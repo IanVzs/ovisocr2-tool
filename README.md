@@ -2,10 +2,10 @@
 
 系统托盘小工具：点击后框选屏幕区域 → 用 [HunyuanOCR](https://github.com/Tencent-Hunyuan/HunyuanOCR) 解析为 Markdown → 写入系统剪贴板，并在托盘任务面板查看进度。CPU友好。
 
-> **Windows 11 也支持**：本项目是跨平台 Python 程序，Windows 上只是多了一条 `win32` 平台分支
+> ** Linux(KDE) 原版支持**
+> **Windows支持**
 > （Qt 框选蒙层 + **mss** 基于 GDI 的物理像素抓屏 + Win32 剪贴板 / 全局快捷键），
 > 无需 WSL 或 spectacle。截图用 `GetCursorPos` 物理坐标直连 mss，支持多显示器与每屏不同 DPI。
-> 见下方「Windows 安装」。Linux(KDE) 行为完全不变。
 
 ## 架构（分前后端，但都在本机、由应用自管）
 
@@ -92,7 +92,7 @@
 ```bat
 python -m pip install -r requirements.txt
 python -m pip install -e .
-python -m ocr_tool --setup-backend   :: 下载后端 + 模型（约 1.3GB）
+python -m ocr_tool --setup-backend   :: 下载后端 + 模型（约 1.3GB）应用启动后也会自行下载
 ```
 
 启动与常用命令（命令行执行）：
@@ -224,9 +224,7 @@ make help
 
 
 ## 打包 / 独立安装
-
-参照 `py-muti-scrcpy` 的做法，用 **PyInstaller** 把应用（含 Python 运行时 + PySide6）打成
-自带运行时的独立目录，**不依赖本源码目录**：
+用 **PyInstaller** 把应用（含 Python 运行时 + PySide6）打成自带运行时的独立目录，**不依赖本源码目录**：
 
 ```bash
 make pkg-binary     # → dist/ocr-tool/ 独立运行目录（含 ocr-tool 可执行）
@@ -253,7 +251,6 @@ make pkg-clean      # 清理 dist/ build/ 与 _version.py
 
 ## Make 命令
 
-
 | 命令                               | 说明                                                   |
 | -------------------------------- | ---------------------------------------------------- |
 | `make` / `make help`             | 列出命令                                                 |
@@ -269,6 +266,5 @@ make pkg-clean      # 清理 dist/ build/ 与 _version.py
 | `make quit` / `make status`      | 管理托盘应用                                               |
 | `make show-version`              | 打印版本（读自 `pyproject.toml`）                            |
 | `make set-version VERSION=x.y.z` | 改版本；若在 git 仓库则自动 commit                              |
-
 
 版本号唯一权威源：`pyproject.toml` 的 `version` 字段。
